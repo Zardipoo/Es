@@ -5,67 +5,91 @@
 #include <sys/shm.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <time.h>
 
 #define NUM_ELEMENTI 10
-#define KEY 1234
 
 int main() {
-    // Creazione della memoria condivisa
-    int shmid = shmget(KEY, sizeof(int) * NUM_ELEMENTI, IPC_CREAT | 0666);
-    if (shmid == -1) {
-        perror("Errore creazione memoria condivisa");
+    key_t key1 = ftok(".", 'A');
+    key_t key2 = ftok(".", 'B');
+
+    // Creazione della memoria condivisa per il primo array
+    int shmid1 = shmget(key1, sizeof(int) * NUM_ELEMENTI, IPC_CREAT | 0666);
+    if (shmid1 == -1) {
+        perror("Errore creazione memoria condivisa per il primo array");
         exit(EXIT_FAILURE);
     }
 
-    // Attach della memoria condivisa
-    int* memoria_condivisa = (int*)shmat(shmid, NULL, 0);
-    if (memoria_condivisa == (int*)-1) {
-        perror("Errore attach memoria condivisa");
+    // Creazione della memoria condivisa per il secondo array
+    int shmid2 = shmget(key2, sizeof(int) * NUM_ELEMENTI, IPC_CREAT | 0666);
+    if (shmid2 == -1) {
+        perror("Errore creazione memoria condivisa per il secondo array");
+        exit(EXIT_FAILURE);
+    }
+
+    // Attach della memoria condivisa per il primo array
+    int* array1 = (int*)shmat(shmid1, NULL, 0);
+    if (array1 == (int*)-1) {
+        perror("Errore attach memoria condivisa per il primo array");
+        exit(EXIT_FAILURE);
+    }
+
+    // Attach della memoria condivisa per il secondo array
+    int* array2 = (int*)shmat(shmid2, NULL, 0);
+    if (array2 == (int*)-1) {
+        perror("Errore attach memoria condivisa per il secondo array");
         exit(EXIT_FAILURE);
     }
 
     // Inizializzazione dei vettori con numeri casuali
+    srand(time(NULL));
     for (int i = 0; i < NUM_ELEMENTI; i++) {
-        memoria_condivisa[i] = rand() % 100;
+        array1[i] = rand() % 100;
+        array2[i] = rand() % 100;
     }
 
-    // Creazione dei processi figli
-    pid_t pid;
     int risultati[NUM_ELEMENTI];
 
     for (int i = 0; i < NUM_ELEMENTI; i++) {
-        pid = fork();
+        pid_t pid = fork();
 
         if (pid == -1) {
             perror("Errore creazione processo figlio");
             exit(EXIT_FAILURE);
         } else if (pid == 0) {
-            // Processo figlio
-            int somma = memoria_condivisa[i] + i;
-            shmdt(memoria_condivisa); // Detach della memoria condivisa
+            // Figlio
+            int somma = array1[i] + array2[i];
             exit(somma);
         }
     }
 
-    // Raccolta dei valori di ritorno dei figli
     for (int i = 0; i < NUM_ELEMENTI; i++) {
         int status;
-        wait(&status);
+        pid_t pid = wait(&status);
 
         if (WIFEXITED(status)) {
-            risultati[i] = WEXITSTATUS(status);
+            int somma = WEXITSTATUS(status);
+            risultati[i] = somma;
         }
     }
 
-    // Stampa dei risultati
     printf("Risultati: ");
     for (int i = 0; i < NUM_ELEMENTI; i++) {
         printf("%d ", risultati[i]);
     }
     printf("\n");
 
-    // Deallocazione della memoria condivisa
-    shmctl(shmid, IPC_RMID, NULL);
+    // Detach della memoria condivisa per il primo array
+    shmdt(array1);
+
+    // Detach della memoria condivisa per il secondo array
+    shmdt(array2);
+
+    // Deallocazione della memoria condivisa per il primo array
+    shmctl(shmid1, IPC_RMID, NULL);
+
+    // Deallocazione della memoria condivisa per il secondo array
+    shmctl(shmid2, IPC_RMID, NULL);
 
     return 0;
 }
